@@ -5,6 +5,7 @@ import io
 import os
 import uuid
 import Tkinter as tk
+import tkFont
 import tkMessageBox
 import tkFileDialog
 try:
@@ -44,18 +45,23 @@ class CardDialog(tk.Toplevel):
         is_new = not title_text
         self.title(u"Новая карточка" if is_new else u"Редактировать карточку")
 
+        title_font = tkFont.Font(family="Tahoma", size=11, weight="bold")
+        desc_font = tkFont.Font(family="Tahoma", size=10)
+
         # Title entry
         tk.Label(self, text=u"Название:").grid(
             row=0, column=0, padx=5, pady=(5, 2), sticky=tk.W)
         self.title_var = tk.StringVar(value=title_text)
-        entry = tk.Entry(self, textvariable=self.title_var, width=40)
+        entry = tk.Entry(self, textvariable=self.title_var,
+                         font=title_font, width=40)
         entry.grid(row=0, column=1, padx=5, pady=(5, 2), sticky=tk.EW)
 
         # Description text area
         tk.Label(self, text=u"Описание:").grid(
             row=1, column=0, padx=5, pady=2, sticky=tk.NW)
-        self.desc_text = tk.Text(self, width=40, height=5, wrap=tk.WORD)
-        self.desc_text.grid(row=1, column=1, padx=5, pady=2, sticky=tk.EW)
+        self.desc_text = tk.Text(self, width=40, height=7,
+                                 wrap=tk.WORD, font=desc_font)
+        self.desc_text.grid(row=1, column=1, padx=5, pady=2, sticky=tk.NSEW)
         if desc_text:
             self.desc_text.insert("1.0", desc_text)
 
@@ -68,7 +74,9 @@ class CardDialog(tk.Toplevel):
                   command=self._on_cancel).pack(side=tk.LEFT, padx=5)
 
         self.columnconfigure(1, weight=1)
-        self.resizable(False, False)
+        self.rowconfigure(1, weight=1)
+        self.resizable(True, True)
+        self.minsize(400, 220)
 
         # Center on parent
         self.update_idletasks()
@@ -317,11 +325,18 @@ class Board(tk.Frame):
         self._drag_data = None
         self._drag_src_col = None
         self._ghost = None
+        self._stored_widths = None
 
+        self._pw = tk.PanedWindow(self, orient=tk.HORIZONTAL,
+                                   sashwidth=6, sashrelief=tk.RAISED,
+                                   sashcursor="sb_h_double_arrow")
         for cd in COLUMN_DEFS:
-            col = Column(self, cd, self)
-            col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2, pady=2)
+            col = Column(self._pw, cd, self)
+            self._pw.add(col, minsize=160)
             self._columns[cd["id"]] = col
+        self._pw.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+
+        self._pw.bind("<Double-Button-1>", self._on_sash_double_click)
 
     # -- properties ------------------------------------------------------------
 
@@ -331,6 +346,53 @@ class Board(tk.Frame):
 
     def get_column(self, col_id):
         return self._columns.get(col_id)
+
+    # -- column width management ------------------------------------------------
+
+    def _on_sash_double_click(self, event):
+        for i in range(len(COLUMN_DEFS) - 1):
+            sx, sy = self._pw.sash_coord(i)
+            if abs(event.x - sx) < 10:
+                self._reset_column_widths()
+                break
+
+    def _reset_column_widths(self):
+        self.update_idletasks()
+        pw_width = self._pw.winfo_width()
+        if pw_width <= 1:
+            return
+        n = len(COLUMN_DEFS)
+        each = pw_width // n
+        for i in range(n - 1):
+            self._pw.sash_place(i, each * (i + 1), 0)
+        self._stored_widths = None
+
+    def _get_column_widths(self):
+        widths = []
+        for cd in COLUMN_DEFS:
+            col = self._columns[cd["id"]]
+            widths.append(col.winfo_width())
+        return widths
+
+    def set_column_widths(self, widths):
+        self._stored_widths = widths
+        self.after(50, self._apply_column_widths)
+
+    def _apply_column_widths(self):
+        if not self._stored_widths:
+            return
+        self.update_idletasks()
+        pw_width = self._pw.winfo_width()
+        if pw_width <= 1:
+            self.after(50, self._apply_column_widths)
+            return
+        total = sum(self._stored_widths)
+        pos = 0
+        for i in range(len(self._stored_widths) - 1):
+            pos += self._stored_widths[i]
+            scaled = int(pos * pw_width / total)
+            self._pw.sash_place(i, max(160, scaled), 0)
+        self._stored_widths = None
 
     # -- rebuild from data -----------------------------------------------------
 
@@ -654,13 +716,19 @@ class App(object):
 
     def _serialize(self):
         self._update_orders()
-        return {"version": 1, "cards": self._cards_data}
+        widths = self._board._get_column_widths()
+        return {"version": 1, "cards": self._cards_data,
+                "ui": {"column_widths": widths}}
 
     def _deserialize(self, data):
         if not isinstance(data, dict) or "cards" not in data:
             raise ValueError(u"Неверный формат файла")
         self._cards_data = data["cards"]
         self._board.rebuild_from_data(self._cards_data)
+        ui = data.get("ui", {})
+        widths = ui.get("column_widths")
+        if widths and len(widths) == len(COLUMN_DEFS):
+            self._board.set_column_widths(widths)
 
     def new_board(self):
         if self._cards_data:
