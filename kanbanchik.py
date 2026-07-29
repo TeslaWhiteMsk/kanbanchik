@@ -7,8 +7,6 @@ import uuid
 import Tkinter as tk
 import tkMessageBox
 import tkFileDialog
-import tkFont
-
 try:
     import ttk
 except ImportError:
@@ -21,7 +19,6 @@ APP_TITLE = "Kanbanchik"
 DEFAULT_FILE = "board.json"
 CARD_BG = "#FFFFF0"
 CARD_HOVER_BG = "#FFFACD"
-CARD_BORDER = "#D4D0C8"
 INSERTION_COLOR = "#FF6600"
 DRAG_GHOST_BG = "#FFFFE0"
 FONT_FAMILY = "TkDefaultFont"
@@ -114,7 +111,6 @@ class Card(tk.Frame):
         self._data = card_data
         self._board = board
         self.column = None
-        self._hover = False
 
         tk.Frame.__init__(self, parent, bg=CARD_BG, bd=1, relief=tk.RAISED,
                           padx=4, pady=3)
@@ -174,17 +170,6 @@ class Card(tk.Frame):
 
     def _on_context(self, event):
         self._board.show_context_menu(self, event)
-
-    def on_hover(self, active):
-        """Called by the board to toggle hover appearance."""
-        if active and self._board.is_dragging:
-            return
-        self._hover = active
-        self._update_bg(CARD_HOVER_BG if active else CARD_BG)
-
-    def set_hover_during_drag(self):
-        """Force hover bg while this card is the drag source visual."""
-        self._update_bg(CARD_HOVER_BG)
 
 
 # --- Column widget -----------------------------------------------------------
